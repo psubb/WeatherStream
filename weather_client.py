@@ -25,4 +25,4 @@ def get_weather_data(location, api_key):
 
 if __name__ == "__main__":
     api_key = get_api_key()
-    print(get_weather_data("danville_ca", api_key))
+    print(get_weather_data("san_jose", api_key))
