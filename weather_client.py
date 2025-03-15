@@ -20,7 +20,7 @@ def get_weather_data(location, api_key):
         return result
     else:
         print(f"Failed to retrieve, error message: {status_code}")
-        return
+        return None
         
 
 if __name__ == "__main__":
