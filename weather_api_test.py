@@ -9,7 +9,7 @@ def get_response():
         print(response.json())
         
     else:
-        print("Failed, error message : {status_code}")
+        print(f"Failed, error message : {status_code}")
 
 if __name__ == "__main__":
     get_response()
