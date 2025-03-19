@@ -29,7 +29,7 @@ def get_weather_data(location, api_key):
                     continue
                 if key != "datetime":
                     day.pop(key, None)
-                    
+        # filter out currentConditions           
         for key in list(result["currentConditions"].keys()):
             if key not in allowed_keys:
                 result["currentConditions"].pop(key, None)
