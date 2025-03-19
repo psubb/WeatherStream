@@ -1,7 +1,15 @@
-FROM python:3.13
+FROM python:3.13-slim
 
-ADD requirements.txt .
+WORKDIR /app
+
+COPY requirements.txt .
 
 RUN pip install -r requirements.txt
 
-CMD ["python3", "weather_api.py"]
+COPY . .
+
+EXPOSE 5000
+
+ENV FLASK_APP=app/weather_api.py
+
+CMD ["python3", "app/weather_api.py"]
