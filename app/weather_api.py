@@ -15,7 +15,6 @@ def get_weather(location):
     # Attempt to retrieve cached data
     cached_data = redis_client.get(location)
     if cached_data:  # if cached, return
-        print("IN CACHE")
         return jsonify(json.loads(cached_data))
     
     # If not cached, call API
