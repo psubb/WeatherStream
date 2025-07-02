@@ -1,0 +1,17 @@
+FROM python:3.13-slim
+
+# Ensure stdout/stderr are unbuffered so logs appear live
+ENV PYTHONUNBUFFERED=1
+
+# Create and switch to the app directory
+WORKDIR /app
+
+# Only install what this service needs: kafka client + dotenv
+RUN pip install --upgrade pip \
+    && pip install kafka-python python-dotenv
+
+# Copy in your consumer script
+COPY alerts_consumer.py .
+
+# Launch the consumer
+CMD ["python", "alerts_consumer.py"]
