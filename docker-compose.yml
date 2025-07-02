@@ -33,7 +33,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.web
     container_name: weather_api
     depends_on:
       - redis
@@ -45,3 +45,13 @@ services:
     environment:
       REDIS_HOST: redis   # for redis.Redis(host=os.getenv("REDIS_HOST"), ...)
       KAFKA_BOOTSTRAP: kafka:9092
+
+  alerts:
+    build:
+      context: .
+      dockerfile: Dockerfile.alerts
+    container_name: weather_alerts
+    depends_on:
+      - kafka
+    env_file:
+      - .env
