@@ -1,22 +1,28 @@
 import os
 import json
 import time
-import sys
 import smtplib
 from email.message import EmailMessage
 from kafka import KafkaConsumer, errors
 from dotenv import load_dotenv
 
-# Load config from .env
+load_dotenv()
 
-# Setup Kafka
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
-TOPIC = os.getenv("KAFKA_TOPIC", "weather-updates")
+# Lazy initalize  
+consumer = None
 
-# Consumer retry helper
 def get_consumer():
+    """
+    Return a singleton KafkaConsumer, retrying up to 10 times if the broker isn't ready.
+    Never exits the process—returns None if still not connected.
+    """
+    global consumer
+    if consumer is not None:
+        return consumer
+
     bootstrap = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
-    topic     = os.getenv("KAFKA_TOPIC", "weather-updates")
+    topic     = os.getenv("KAFKA_TOPIC",     "weather-updates")
+
     for attempt in range(1, 11):
         try:
             consumer = KafkaConsumer(
@@ -28,40 +34,35 @@ def get_consumer():
                 consumer_timeout_ms=1000,
             )
             print(f"[KAFKA] consumer connected on attempt {attempt}")
-            return consumer
+            break
         except errors.NoBrokersAvailable:
             print(f"[KAFKA] broker not available, retry {attempt}/10…")
             time.sleep(1)
-    print("[KAFKA] failed to connect after 10 retries, exiting")
-    sys.exit(1)
 
-# Instantiate consumer (with retries)
-consumer = get_consumer()
+    if consumer is None:
+        print("[KAFKA] still not available, will retry on next loop")
+    return consumer
 
-# Rain alert thresholds
-PRECIP_PROB_THRESHOLD = float(os.getenv("PRECIP_PROB_THRESHOLD", 50))
-PRECIP_AMOUNT_THRESHOLD = float(os.getenv("PRECIP_AMOUNT_THRESHOLD", 50))
+# Get thresholds from .env 
+PRECIP_PROB_THRESHOLD   = float(os.getenv("PRECIP_PROB_THRESHOLD",   50))
+PRECIP_AMOUNT_THRESHOLD = float(os.getenv("PRECIP_AMOUNT_THRESHOLD", 0.0))
 
-# Email Setup
-SMTP_HOST     = os.getenv("SMTP_HOST", "smtp.example.com")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", 587))
-SMTP_USER     = os.getenv("SMTP_USER", "")
+# Email setting from .env
+SMTP_HOST     = os.getenv("SMTP_HOST",     "smtp.example.com")
+SMTP_PORT     = int(os.getenv("SMTP_PORT",     587))
+SMTP_USER     = os.getenv("SMTP_USER",     "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-ALERT_FROM    = os.getenv("ALERT_FROM",  SMTP_USER)
-ALERT_TO      = os.getenv("ALERT_TO",    "")
+ALERT_FROM    = os.getenv("ALERT_FROM",    SMTP_USER)
+ALERT_TO      = os.getenv("ALERT_TO",      "")
 
 def send_email_alert(location: str, conds: dict):
-    """
-    Compose and send a simple email alert
-    """
     subject = f"Rain Alert for {location.capitalize()}"
     body = (
-        f"Rain expected for {location}!\n\n"
-        f"Current Conditions:\n"
-        f"  • Temp: {conds.get('temp')}°\n"
+        f"🚨 Rain expected in {location}!\n\n"
+        f"  • Temp:        {conds.get('temp')}°\n"
         f"  • Precip Prob: {conds.get('precipprob')}%\n"
-        f"  • Expected Precip: {conds.get('precip')} inches\n\n"
-        "Stay dry!\n"
+        f"  • Precip Amt:  {conds.get('precip')} in\n\n"
+        "Stay dry! ☔\n"
     )
 
     msg = EmailMessage()
@@ -77,31 +78,32 @@ def send_email_alert(location: str, conds: dict):
         print(f"[ALERT SENT] {location} (@{conds.get('precipprob')}%)")
 
 def main():
-    print(f"[STARTING] alerts consumer, listening to '{TOPIC}' on {KAFKA_BOOTSTRAP}")
-    try:
-        while True:
-            for msg in consumer:
-                value = msg.value
-                loc   = value.get("location")
-                data  = value.get("data", {})
-                current = data.get("currentConditions", {})
+    print(f"[STARTING] alerts consumer (prob≥{PRECIP_PROB_THRESHOLD}%, amt≥{PRECIP_AMOUNT_THRESHOLD})")
+    while True:
+        c = get_consumer()
+        if not c:
+            # Kafka still unavailable—wait then retry
+            time.sleep(2)
+            continue
 
-                prob   = current.get("precipprob", 0.0)
-                amount = current.get("precip",    0.0)
+        # Process all available messages
+        for msg in c:
+            value   = msg.value or {}
+            loc     = value.get("location", "unknown")
+            data    = value.get("data", {})
+            current = data.get("currentConditions", {})
 
-                # Check thresholds
-                if prob >= PRECIP_PROB_THRESHOLD and amount >= PRECIP_AMOUNT_THRESHOLD:
-                    print(f"[TRIGGER] {loc}: prob={prob}, amount={amount}")
-                    send_email_alert(loc, current)
-                else:
-                    print(f"[SKIP]    {loc}: prob={prob}, amount={amount}")
+            prob   = current.get("precipprob", 0.0)
+            amount = current.get("precip",      0.0)
 
-            # If we hit consumer_timeout, sleep a bit then re-poll
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[SHUTDOWN] consumer interrupted, exiting.")
-    finally:
-        consumer.close()
+            if prob >= PRECIP_PROB_THRESHOLD and amount >= PRECIP_AMOUNT_THRESHOLD:
+                print(f"[TRIGGER] {loc}: prob={prob}, amount={amount}")
+                send_email_alert(loc, current)
+            else:
+                print(f"[SKIP]    {loc}: prob={prob}, amount={amount}")
+
+        # No more messages: pause, then loop back and re-attempt get_consumer()
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
