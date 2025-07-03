@@ -1,9 +1,10 @@
 import os
 import json
 import time
+import sys
 import smtplib
 from email.message import EmailMessage
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, errors
 from dotenv import load_dotenv
 
 # Load config from .env
@@ -12,14 +13,30 @@ from dotenv import load_dotenv
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "weather-updates")
 
-consumer = KafkaConsumer(
-    TOPIC,
-    bootstrap_servers=KAFKA_BOOTSTRAP,
-    auto_offset_reset="earliest",
-    enable_auto_commit=True,
-    value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-    consumer_timeout_ms=1000 # exit if no messages for 1 second
-)
+# Consumer retry helper
+def get_consumer():
+    bootstrap = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
+    topic     = os.getenv("KAFKA_TOPIC", "weather-updates")
+    for attempt in range(1, 11):
+        try:
+            consumer = KafkaConsumer(
+                topic,
+                bootstrap_servers=bootstrap,
+                auto_offset_reset="earliest",
+                enable_auto_commit=True,
+                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+                consumer_timeout_ms=1000,
+            )
+            print(f"[KAFKA] consumer connected on attempt {attempt}")
+            return consumer
+        except errors.NoBrokersAvailable:
+            print(f"[KAFKA] broker not available, retry {attempt}/10…")
+            time.sleep(1)
+    print("[KAFKA] failed to connect after 10 retries, exiting")
+    sys.exit(1)
+
+# Instantiate consumer (with retries)
+consumer = get_consumer()
 
 # Rain alert thresholds
 PRECIP_PROB_THRESHOLD = float(os.getenv("PRECIP_PROB_THRESHOLD", 50))

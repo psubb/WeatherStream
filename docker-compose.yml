@@ -48,7 +48,7 @@ services:
 
   alerts:
     build:
-      context: .
+      context: ./alerts
       dockerfile: Dockerfile.alerts
     container_name: weather_alerts
     depends_on:
